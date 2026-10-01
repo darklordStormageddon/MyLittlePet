@@ -1,0 +1,40 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="MyLittlePet"
+config/description="펫메이트 - 내가 현실에서 성장하는 동안 함께 성장하는 방치형 펫 육성 시뮬레이터"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+run/low_processor_mode=true
+config/icon="res://icon.svg"
+
+[autoload]
+
+EventBus="*res://scripts/autoload/event_bus.gd"
+Economy="*res://scripts/autoload/economy.gd"
+ActivityLog="*res://scripts/autoload/activity_log.gd"
+FocusManager="*res://scripts/autoload/focus_manager.gd"
+HouseManager="*res://scripts/autoload/house_manager.gd"
+PetManager="*res://scripts/autoload/pet_manager.gd"
+Collection="*res://scripts/autoload/collection.gd"
+FusionManager="*res://scripts/autoload/fusion_manager.gd"
+SaveManager="*res://scripts/autoload/save_manager.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
