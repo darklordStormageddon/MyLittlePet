@@ -12,6 +12,12 @@ var edit_mode := false:
 		for n in _furniture_layer.get_children():
 			n.queue_redraw()
 
+## PiP(바탕화면) 모드: 하늘/땅/잠긴 공간을 그리지 않아 열린 방과 펫만 바탕화면 위에 떠 보인다
+var pip_mode := false:
+	set(v):
+		pip_mode = v
+		queue_redraw()
+
 var _furniture_layer := Control.new()
 var _pet_layer := Control.new()
 var _furniture_nodes := {} # uid -> node
@@ -98,6 +104,16 @@ func get_pet_node(uid: int) -> Control:
 	return _pet_nodes.get(uid)
 
 
+## 열린 공간(+지붕)을 감싸는 영역. 화면 맞춤(fit)에 사용한다.
+func content_rect() -> Rect2:
+	var rects := HouseManager.unlocked_area_rects()
+	var r: Rect2 = rects[0]
+	for other in rects:
+		r = r.merge(other)
+	var roof := 30.0 if HouseManager.is_area_unlocked("floor2") else 100.0
+	return r.grow_individual(16.0, roof, 16.0, 10.0)
+
+
 func focus_point_of(uid: int) -> Vector2:
 	var n: Control = _pet_nodes.get(uid)
 	return n.feet if n else Vector2.ZERO
@@ -106,9 +122,10 @@ func focus_point_of(uid: int) -> Vector2:
 func _draw() -> void:
 	var night := Clock.is_night()
 	var sky := Color(0.75, 0.88, 1.0) if not night else Color(0.1, 0.12, 0.28)
-	draw_rect(Rect2(Vector2.ZERO, size), sky)
-	# 땅
-	draw_rect(Rect2(0, 520, size.x, size.y - 520), Color(0.45, 0.35, 0.28) if not night else Color(0.25, 0.2, 0.18))
+	if not pip_mode:
+		draw_rect(Rect2(Vector2.ZERO, size), sky)
+		# 땅
+		draw_rect(Rect2(0, 520, size.x, size.y - 520), Color(0.45, 0.35, 0.28) if not night else Color(0.25, 0.2, 0.18))
 	var font := ThemeDB.fallback_font
 	for stage in Balance.HOUSE_STAGES:
 		var r: Rect2 = HouseManager.AREA_RECTS[stage["id"]]
@@ -121,7 +138,7 @@ func _draw() -> void:
 			draw_rect(Rect2(r.position.x, r.end.y - 22, r.size.x, 22), _floor_color(String(stage["id"])).darkened(0.25 if night else 0.0))
 			draw_rect(r, Color(0.45, 0.3, 0.2), false, 4.0)
 			draw_string(font, r.position + Vector2(10, 22), String(stage["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.3, 0.2, 0.15, 0.7) if not night else Color(1, 1, 1, 0.6))
-		else:
+		elif not pip_mode:
 			draw_rect(r, Color(0.3, 0.3, 0.35, 0.55))
 			draw_rect(r, Color(0.2, 0.2, 0.25, 0.8), false, 2.0)
 			var text := "🔒 %s - 펫집 Lv.%d 필요" % [stage["name"], stage["level"]]

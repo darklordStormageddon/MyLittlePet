@@ -139,6 +139,8 @@ func _draw() -> void:
 	PetArt.draw_pet(self, base + offset, BASE_RADIUS, pet.species, opts)
 
 	var font := ThemeDB.fallback_font
+	# 펫집이 작게 축소되어도(작은 창, PiP) 이름과 말풍선은 읽을 수 있는 크기로 유지
+	var k := 1.0 / clampf(house_view.scale.x, 0.4, 1.0)
 	var top := base.y - BASE_RADIUS * 2.3
 	if not moving and anim == "sleep":
 		for i in 3:
@@ -155,15 +157,16 @@ func _draw() -> void:
 
 	# 이름
 	var name_text := "%s Lv.%d" % [pet.display_name(), pet.level]
-	var nw := font.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-	draw_string(font, Vector2(base.x - nw * 0.5, base.y + 12), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.2, 0.15, 0.1))
+	var name_fs := int(11 * k)
+	var nw := font.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).x
+	draw_string(font, Vector2(base.x - nw * 0.5, base.y + 12 * k), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs, Color(0.2, 0.15, 0.1))
 
 	# 말풍선
 	if pet.speech != "":
-		var fs := 13
+		var fs := int(13 * k)
 		var tw := font.get_string_size(pet.speech, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var bw := tw + 16
-		var rect := Rect2(Vector2(base.x - bw * 0.5, top - 30), Vector2(bw, 24))
+		var bw := tw + 16 * k
+		var rect := Rect2(Vector2(base.x - bw * 0.5, top - 30 * k), Vector2(bw, 24 * k))
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(1, 1, 1, 0.95)
 		sb.set_corner_radius_all(10)
@@ -171,4 +174,4 @@ func _draw() -> void:
 		sb.set_border_width_all(1)
 		draw_style_box(sb, rect)
 		draw_colored_polygon(PackedVector2Array([Vector2(base.x - 5, rect.end.y - 1), Vector2(base.x + 5, rect.end.y - 1), Vector2(base.x, rect.end.y + 7)]), Color(1, 1, 1, 0.95))
-		draw_string(font, rect.position + Vector2(8, 17), pet.speech, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.2, 0.15, 0.1))
+		draw_string(font, rect.position + Vector2(8, 17) * k, pet.speech, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.2, 0.15, 0.1))

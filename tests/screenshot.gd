@@ -1,6 +1,6 @@
 extends SceneTree
 ## 데모 상태를 만들고 메인 화면 스크린샷을 저장한다 (개발용).
-## 실행: xvfb-run godot -s tests/screenshot.gd -- --no-autoload-save <출력 경로> [탭 번호]
+## 실행: xvfb-run godot -s tests/screenshot.gd -- --no-autoload-save <출력 경로> [탭 번호] [창 너비x높이] [pip]
 
 var _frames := 0
 var _main: Node
@@ -16,6 +16,9 @@ func _process(_delta: float) -> bool:
 			_out = args[1]
 		if args.size() > 2:
 			_tab = int(args[2])
+		if args.size() > 3:
+			var wh := args[3].split("x")
+			root.size = Vector2i(int(wh[0]), int(wh[1]))
 		_setup_demo()
 		_main = load("res://scenes/main.tscn").instantiate()
 		root.add_child(_main)
@@ -23,6 +26,8 @@ func _process(_delta: float) -> bool:
 		(_main.get("_tabs") as TabContainer).current_tab = _tab
 		var pets: Node = root.get_node("PetManager")
 		pets.say(pets.pets[0], "오늘도 열심히 하고 있네!")
+		if OS.get_cmdline_user_args().has("pip"):
+			_main.call("_enter_pip")
 	elif _frames == 400:
 		root.get_viewport().get_texture().get_image().save_png(_out)
 		print("saved ", _out)

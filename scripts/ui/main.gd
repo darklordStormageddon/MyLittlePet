@@ -1,7 +1,12 @@
 extends Control
 ## 메인 화면. 상단 재화 바 + 펫집 + 사이드 탭 + 알림 바, 관찰 팝업, 접속 리포트.
+## 화면 크기: 프로젝트 stretch(canvas_items/expand)로 창 크기에 맞춰 UI 전체가 비율 유지 확대/축소되고,
+## 상단 바의 -/+ 로 UI 크기를 따로 조절할 수 있다. 펫집은 남은 공간에 맞춰 자동으로 맞춰진다.
+## PiP 모드: 테두리 없는 투명 창(항상 위)에 펫집만 띄워 바탕화면의 일부처럼 보이게 한다.
 
 const HouseView := preload("res://scripts/ui/house_view.gd")
+const HouseFrame := preload("res://scripts/ui/house_frame.gd")
+const PipOverlay := preload("res://scripts/ui/pip_overlay.gd")
 const PetPopup := preload("res://scripts/ui/pet_popup.gd")
 const FocusTab := preload("res://scripts/ui/tabs/focus_tab.gd")
 const PetsTab := preload("res://scripts/ui/tabs/pets_tab.gd")
@@ -11,34 +16,39 @@ const FusionTab := preload("res://scripts/ui/tabs/fusion_tab.gd")
 const CollectionTab := preload("res://scripts/ui/tabs/collection_tab.gd")
 const RecordTab := preload("res://scripts/ui/tabs/record_tab.gd")
 
-const MINI_SIZE := Vector2i(560, 380)
 const MAX_MESSAGES := 3
+const NORMAL_MIN_SIZE := Vector2i(640, 360)
+const SCREEN_MARGIN := 24
 
 var _gold_label: Label
 var _rate_label: Label
 var _status_label: Label
-var _mini_button: Button
 var _top_bar: Control
+var _scale_label: Label
+var _bg: ColorRect
+var _split := HSplitContainer.new()
+var _house_frame: Control
+var _pip_overlay: Control
 var _tabs := TabContainer.new()
 var _messages_label: Label
 var _bottom_bar: Control
-var _house_scroll := ScrollContainer.new()
 var _house_view: Control
 var _popup: PanelContainer
 var _report := AcceptDialog.new()
 
 var _messages: Array = []
 var _refresh_timer := 0.0
-var _mini := false
-var _normal_size := Vector2i(1280, 720)
+var _pip := false
+var _normal_rect := Rect2i()
+var _normal_maximized := false
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	var bg := ColorRect.new()
-	bg.color = Color(0.11, 0.1, 0.13)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	_bg = ColorRect.new()
+	_bg.color = Color(0.11, 0.1, 0.13)
+	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_bg)
 
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -62,26 +72,39 @@ func _ready() -> void:
 	_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status_label.clip_text = true
 	top_row.add_child(_status_label)
-	_mini_button = TabBase.make_button("미니 모드", _toggle_mini)
-	_mini_button.tooltip_text = "작은 창으로 띄워두고 펫을 지켜봐요 (항상 위)"
-	top_row.add_child(_mini_button)
+	var scale_box := HBoxContainer.new()
+	scale_box.add_theme_constant_override("separation", 2)
+	scale_box.add_child(_small_button("－", "UI 작게", func(): _set_ui_scale(-0.1)))
+	_scale_label = TabBase.make_label("", 12)
+	_scale_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_scale_label.tooltip_text = "UI 크기"
+	_scale_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	scale_box.add_child(_scale_label)
+	scale_box.add_child(_small_button("＋", "UI 크게", func(): _set_ui_scale(0.1)))
+	top_row.add_child(scale_box)
+	var pip_button := TabBase.make_button("바탕화면에 띄우기", _enter_pip)
+	pip_button.tooltip_text = "펫집만 작은 투명 창으로 바탕화면 위에 띄워요 (항상 위, PiP)"
+	top_row.add_child(pip_button)
 	root.add_child(top)
 
-	# --- 중앙: 펫집 + 탭 ---
-	var middle := HBoxContainer.new()
-	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	middle.add_theme_constant_override("separation", 0)
-	root.add_child(middle)
-	_house_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_house_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	middle.add_child(_house_scroll)
+	# --- 중앙: 펫집 + 탭 (가운데 경계를 드래그해 비율 조절) ---
+	_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_split.split_offset = Settings.split_offset
+	_split.dragged.connect(func(offset): Settings.split_offset = offset; Settings.save_settings())
+	root.add_child(_split)
+	_house_frame = HouseFrame.new()
+	_house_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_house_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_house_frame.custom_minimum_size = Vector2(240, 160)
+	_split.add_child(_house_frame)
 	_house_view = HouseView.new()
-	_house_scroll.add_child(_house_view)
-	_house_view.pet_clicked.connect(_open_popup)
+	_house_frame.setup(_house_view)
+	_house_frame.window_drag_finished.connect(_on_pip_window_changed)
+	_house_view.pet_clicked.connect(_on_pet_clicked)
 
-	_tabs.custom_minimum_size = Vector2(430, 0)
+	_tabs.custom_minimum_size = Vector2(360, 0)
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	middle.add_child(_tabs)
+	_split.add_child(_tabs)
 	_tabs.add_child(FocusTab.new())
 	var pets_tab := PetsTab.new()
 	pets_tab.observe_requested.connect(_open_popup)
@@ -106,6 +129,11 @@ func _ready() -> void:
 	_popup = PetPopup.new()
 	add_child(_popup)
 	_popup.position = Vector2(24, 70)
+	_pip_overlay = PipOverlay.new()
+	_pip_overlay.visible = false
+	add_child(_pip_overlay)
+	_pip_overlay.exit_requested.connect(_exit_pip)
+	_pip_overlay.window_changed.connect(_on_pip_window_changed)
 	_report.title = "다녀왔어요!"
 	_report.ok_button_text = "수령하기"
 	_report.confirmed.connect(_claim)
@@ -115,8 +143,17 @@ func _ready() -> void:
 	EventBus.toast.connect(_push_message)
 	EventBus.pet_speech.connect(_on_pet_speech)
 
+	_apply_ui_scale()
+	_fit_window_to_screen.call_deferred()
 	_on_loaded()
 	_refresh()
+
+
+func _small_button(text: String, tip: String, cb: Callable) -> Button:
+	var b := TabBase.make_button(text, cb)
+	b.tooltip_text = tip
+	b.focus_mode = Control.FOCUS_NONE
+	return b
 
 
 func _panel(color: Color) -> PanelContainer:
@@ -174,6 +211,14 @@ func _claim() -> void:
 		_push_message("💰 %s 골드를 수령했어요!" % Balance.format_number(amount))
 
 
+## PiP 에서는 팝업 대신 바로 쓰다듬는다 (작은 창에 맞게)
+func _on_pet_clicked(uid: int) -> void:
+	if _pip:
+		PetManager.pet_pet(uid)
+	else:
+		_open_popup(uid)
+
+
 func _open_popup(uid: int) -> void:
 	_popup.open(uid)
 
@@ -211,24 +256,117 @@ func _refresh() -> void:
 	status.append("📘 %d/%d" % [Collection.discovered_count(), Collection.total_count()])
 	_status_label.text = "   ".join(status)
 	var current := _tabs.get_current_tab_control()
-	if current is TabBase and not _mini:
+	if current is TabBase and not _pip:
 		(current as TabBase).refresh()
 
 
-## 미니 모드: 작은 창 + 항상 위. 게임을 계속 조작하지 않고 펫을 지켜보는 용도 (기획안 7)
-func _toggle_mini() -> void:
-	_mini = not _mini
-	_tabs.visible = not _mini
-	_bottom_bar.visible = not _mini
-	_rate_label.visible = not _mini
-	_mini_button.text = "전체 화면" if _mini else "미니 모드"
+# --- 화면 크기 ---
+
+func _set_ui_scale(delta: float) -> void:
+	Settings.step_ui_scale(delta)
+	_apply_ui_scale()
+
+
+func _apply_ui_scale() -> void:
+	_scale_label.text = "UI %d%%" % int(round(Settings.ui_scale * 100))
+	if not _pip:
+		get_window().content_scale_factor = Settings.ui_scale
+
+
+## 화면(작업 영역)보다 창이 크면 화면 안에 들어오도록 줄이고 가운데로 옮긴다
+func _fit_window_to_screen() -> void:
 	var win := get_window()
-	if _mini:
-		_normal_size = win.size
-		win.always_on_top = true
-		win.size = MINI_SIZE
-		_house_scroll.scroll_horizontal = 0
-		_house_scroll.scroll_vertical = 220
-	else:
-		win.always_on_top = false
-		win.size = _normal_size
+	win.min_size = NORMAL_MIN_SIZE
+	if win.mode != Window.MODE_WINDOWED:
+		return
+	var usable := DisplayServer.screen_get_usable_rect(win.current_screen)
+	if usable.size.x <= 0:
+		return
+	var target := Vector2i(mini(win.size.x, usable.size.x - SCREEN_MARGIN * 2),
+		mini(win.size.y, usable.size.y - SCREEN_MARGIN * 2))
+	if target != win.size:
+		win.size = target
+		win.position = usable.position + (usable.size - target) / 2
+
+
+# --- PiP (바탕화면 위젯) 모드 ---
+
+func _enter_pip() -> void:
+	if _pip:
+		return
+	_pip = true
+	_popup.visible = false
+	var win := get_window()
+	_normal_maximized = win.mode == Window.MODE_MAXIMIZED
+	if _normal_maximized:
+		win.mode = Window.MODE_WINDOWED
+	_normal_rect = Rect2i(win.position, win.size)
+	_set_chrome_visible(false)
+	_house_frame.pip_mode = true
+	_house_view.pip_mode = true
+	_house_view.modulate.a = Settings.pip_opacity
+	_pip_overlay.visible = true
+
+	win.content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+	win.content_scale_factor = 1.0
+	get_viewport().transparent_bg = true
+	win.transparent = true
+	win.borderless = true
+	win.always_on_top = true
+	win.min_size = Settings.PIP_MIN_SIZE
+	win.size = Settings.pip_size
+	win.position = _pip_position(win)
+
+
+func _exit_pip() -> void:
+	if not _pip:
+		return
+	_on_pip_window_changed()
+	_pip = false
+	var win := get_window()
+	_house_frame.pip_mode = false
+	_house_view.pip_mode = false
+	_house_view.modulate.a = 1.0
+	_pip_overlay.visible = false
+	_set_chrome_visible(true)
+
+	win.always_on_top = false
+	win.borderless = false
+	win.transparent = false
+	get_viewport().transparent_bg = false
+	win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	win.min_size = NORMAL_MIN_SIZE
+	win.size = _normal_rect.size
+	win.position = _normal_rect.position
+	if _normal_maximized:
+		win.mode = Window.MODE_MAXIMIZED
+	_apply_ui_scale()
+
+
+func _set_chrome_visible(on: bool) -> void:
+	_bg.visible = on
+	_top_bar.visible = on
+	_tabs.visible = on
+	_bottom_bar.visible = on
+
+
+## 저장된 위치가 화면 안에 있으면 그대로, 아니면 작업 영역 오른쪽 아래 구석
+func _pip_position(win: Window) -> Vector2i:
+	var pos := Settings.pip_position
+	for i in DisplayServer.get_screen_count():
+		var usable := DisplayServer.screen_get_usable_rect(i)
+		if pos.x >= 0 and usable.has_point(pos + win.size / 2):
+			return pos
+	var screen := DisplayServer.screen_get_usable_rect(win.current_screen)
+	return screen.end - win.size - Vector2i(SCREEN_MARGIN, SCREEN_MARGIN)
+
+
+## PiP 창을 옮기거나 크기를 바꾸면 기억해 둔다
+func _on_pip_window_changed() -> void:
+	if not _pip:
+		return
+	var win := get_window()
+	Settings.pip_position = win.position
+	Settings.pip_size = win.size
+	_house_view.modulate.a = Settings.pip_opacity
+	Settings.save_settings()
